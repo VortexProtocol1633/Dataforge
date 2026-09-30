@@ -1,8 +1,7 @@
 # DataForge
 
-A **custom database & table management web app** built from the
-`website-build-prompt.md` brief: users create independent, spreadsheet-like
-tables, enrich them with typed columns and Excel-style formulas, generate
+A **custom database & table management web app**: users create independent,
+spreadsheet-like tables, enrich them with typed columns and Excel-style formulas, generate
 forms and charts from the data, and import/export files — wrapped in a modern
 **glassmorphic UI with light/dark mode**.
 

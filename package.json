@@ -1,10 +1,27 @@
 {
-  "name": "dataforce",
+  "name": "dataforge",
   "version": "0.1.0",
   "description": "DataForge — custom database & table management web app (glassmorphic UI, formulas, forms, charts, import/export).",
   "private": true,
+  "license": "MIT",
   "type": "commonjs",
   "main": "server/index.js",
+  "homepage": "https://VortexProtocol1633.github.io/Dataforge/public/index.html",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VortexProtocol1633/Dataforge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/VortexProtocol1633/Dataforge/issues"
+  },
+  "keywords": [
+    "database",
+    "spreadsheet",
+    "tables",
+    "formulas",
+    "charts",
+    "glassmorphism"
+  ],
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
