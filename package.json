@@ -1,0 +1,34 @@
+{
+  "name": "dataforce",
+  "version": "0.1.0",
+  "description": "DataForge — custom database & table management web app (glassmorphic UI, formulas, forms, charts, import/export).",
+  "private": true,
+  "type": "commonjs",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed-demo": "node scripts/seed-demo.mjs",
+    "test:import": "node scripts/test-import.mjs",
+    "e2e-ui": "node scripts/e2e-ui.mjs",
+    "test:liveserver": "node scripts/probe-liveserver.mjs",
+    "test:standalone": "node scripts/e2e-flows.mjs",
+    "test:static": "node scripts/verify-static-host.mjs",
+    "test:ui": "node scripts/verify-ui.mjs",
+    "test:flows": "node scripts/verify-flows.mjs",
+    "test:features": "node scripts/verify-features.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.8",
+    "chart.js": "^4.4.4",
+    "docx": "^9.0.2",
+    "express": "^4.19.2",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^6.3.289",
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5"
+  }
+}

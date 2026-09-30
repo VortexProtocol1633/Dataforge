@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# runtime data (tables, uploads, users, sessions, chart configs)
+data/
+
+# exported files & chart images (folder structure is recreated at boot)
+Saves/
+
+# tesseract OCR language model cache (re-downloaded on first OCR use)
+eng.traineddata
+
+# logs & OS noise
+*.log
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/

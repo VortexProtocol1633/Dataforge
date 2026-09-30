@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DataForge — custom tables, formulas, forms & charts</title>
+  <meta name="description" content="Create spreadsheet-like tables with custom data types, Excel-style formulas, auto-generated forms and charts.">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <!-- theme applied before first paint to avoid a flash of the wrong theme -->
+  <script>
+    (function () {
+      var KNOWN = ['light', 'dark', 'cyberpunk', 'cobalt', 'volcanic', 'emerald', 'stealth', 'prism', 'arcade'];
+      try {
+        var t = localStorage.getItem('df_theme');
+        if (KNOWN.indexOf(t) === -1) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
+  <!-- Font pairing: Sora (display) + Inter (body). Falls back to system fonts offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+  <!-- Relative paths: the site is a static HTML/CSS/JS app and runs from any
+       Live Server root (public/ or the repo root) with no backend. -->
+  <link rel="stylesheet" href="css/main.css">
+  <!-- shared formula engine (classic script → window.DataForgeFx) -->
+  <script src="js/formula.js"></script>
+  <!-- Chart.js served locally (vendored copy) -->
+  <script src="vendor/chart.umd.js"></script>
+  <!-- SheetJS — used for .xlsx import/export in the browser -->
+  <script src="vendor/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div id="bg" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
+  <div id="app"></div>
+  <div id="modal-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
