@@ -98,9 +98,48 @@ export default async function render(content) {
     return archivedOnly ? archived : tables.filter((t) => !t.archived);
   }
 
+  /** Temporary tables created in this tab (the data layer hides other tabs'). */
+  function tempTables() { return tables.filter((t) => t.ephemeral); }
+
+  /** Banner summarising this tab's temporary tables, with a one-click clear. */
+  function tempBanner() {
+    const tmp = tempTables();
+    if (!tmp.length) return null;
+    const rows = tmp.reduce((n, t) => n + (t.rowCount || 0), 0);
+    return h('div', { class: 'linked-banner', role: 'status', style: { marginBottom: '16px' } },
+      h('span', { class: 'lb-icon' }, el(icon('clock', 16))),
+      h('div', { class: 'lb-text' },
+        h('strong', { text: `${tmp.length} temporary table${tmp.length === 1 ? '' : 's'} in this tab` }),
+        h('span', { class: 'muted', text: `${rows} row${rows === 1 ? '' : 's'} · stored only here and removed when you close the tab — export anything you want to keep.` }),
+      ),
+      h('div', { class: 'lb-actions' },
+        h('button', { class: 'btn sm', text: 'Clear all now', onclick: clearTemporary }),
+      ),
+    );
+  }
+
+  async function clearTemporary() {
+    const n = tempTables().length;
+    const ok = await confirmDialog({
+      title: 'Remove temporary tables?',
+      message: `${n} temporary table${n === 1 ? '' : 's'} will be deleted from this tab. Export first if you need a copy.`,
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.clearEphemeral();
+      const removed = res.removed || n;
+      tables = (await api.listTables({ includeArchived: true })).tables;
+      renderTables();
+      toast(`${removed} temporary table${removed === 1 ? '' : 's'} removed`, 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
   function renderTables() {
     body.innerHTML = '';
     const list = visibleTables();
+    const banner = tempBanner();
+    if (banner) body.append(banner);
     const seg = h('div', { class: 'seg', style: { marginBottom: '16px' } },
       h('button', { class: archivedOnly ? '' : 'active', text: `Active (${tables.filter((t) => !t.archived).length})`, onclick: () => { archivedOnly = false; renderTables(); } }),
       h('button', { class: archivedOnly ? 'active' : '', text: `Archived (${tables.filter((t) => t.archived).length})`, onclick: () => { archivedOnly = true; renderTables(); } }),
@@ -139,6 +178,7 @@ export default async function render(content) {
         h('span', { class: 'chip', text: `${t.rowCount} rows` }),
         h('span', { class: 'chip gray', text: `${t.columnCount} columns` }),
         t.kind === 'linked' ? h('span', { class: 'chip teal', text: 'live view' }) : null,
+        t.ephemeral ? h('span', { class: 'chip', title: 'Stored in this browser tab only — removed when you close it', text: 'temporary' }) : null,
         t.archived ? h('span', { class: 'chip amber', text: 'archived' }) : null,
       ),
       h('div', { class: 'time' }, `${timeAgo(t.updatedAt)} · ${t.columns.map((c) => c.type).slice(0, 3).join(' · ')}${t.columnCount > 3 ? '…' : ''}`),

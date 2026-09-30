@@ -179,7 +179,7 @@ export default async function render(content, route) {
   function renderAll() {
     formulas = fxList();
     view.innerHTML = '';
-    view.append(renderLinkedBanner(), renderHead(), renderToolbar(), renderGridShell());
+    view.append(renderLinkedBanner(), renderEphemeralBanner(), renderHead(), renderToolbar(), renderGridShell());
   }
 
   function renderLinkedBanner() {
@@ -214,6 +214,31 @@ export default async function render(content, route) {
     return banner;
   }
 
+  /** Banner shown for tables imported as "temporary" (browser-only, per tab). */
+  function renderEphemeralBanner() {
+    if (!state.table.ephemeral) return el('<div></div>');
+    return h('div', { class: 'linked-banner', role: 'status' },
+      h('span', { class: 'lb-icon' }, el(icon('clock', 16))),
+      h('div', { class: 'lb-text' },
+        h('strong', { text: 'Temporary table' }),
+        h('span', { html: 'Stored only in this browser tab and removed when you close it. Use <b>Export</b> to keep a copy on your computer.' }),
+      ),
+      h('div', { class: 'lb-actions' },
+        h('button', { class: 'btn sm', text: 'Export .xlsx', onclick: () => exportFmt('xlsx') }),
+        h('button', { class: 'btn sm primary', text: 'Finish & remove', onclick: finishTemporary }),
+      ),
+    );
+  }
+
+  async function finishTemporary() {
+    try {
+      await exportFmt('xlsx');
+      await api.clearEphemeral();
+      toast('Temporary data removed on this device', 'ok');
+      location.hash = '#/';
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
   function renderHead() {
     const t = state.table;
     const tc = colorTint(t.color);
@@ -225,6 +250,7 @@ export default async function render(content, route) {
           h('h1', {},
             h('span', { text: t.name }),
             t.kind === 'linked' ? h('span', { class: 'chip teal', text: 'live view' }) : null,
+            t.ephemeral ? h('span', { class: 'chip', title: 'Stored in this browser tab only — removed when you close it', text: 'temporary' }) : null,
             t.archived ? h('span', { class: 'chip amber', text: 'archived' }) : null,
           ),
         ),

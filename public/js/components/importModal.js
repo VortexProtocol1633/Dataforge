@@ -4,7 +4,7 @@
  * Word documents yield their tables (or paragraphs); PDFs are read from the
  * text layer, and scanned pages fall back to OCR.
  */
-import { api } from '../api.js';
+import { api, isBrowserMode } from '../api.js';
 import { icon } from '../icons.js';
 import { h, el, esc, modal, toast, fileToBase64 } from '../util.js';
 
@@ -130,12 +130,30 @@ export function openImport({ onCreated } = {}) {
     const preview = h('div', { class: 'preview-scroll' }, previewTable(j));
     const createBtn = h('button', { class: 'btn primary', html: `${icon('zap', 15)} Create table` });
 
+    // Temporary workspaces exist only in the browser layer — nothing reaches a
+    // server, and the table is deleted when this tab is closed (see localstore).
+    const browserMode = isBrowserMode();
+    const tempBox = h('input', { type: 'checkbox', checked: browserMode, disabled: !browserMode });
+    const tempField = h('label', {
+      class: 'field',
+      style: { display: 'flex', gap: '10px', alignItems: 'flex-start', margin: '2px 0 12px', cursor: browserMode ? 'pointer' : 'default' },
+    },
+      tempBox,
+      h('span', {},
+        h('strong', { text: 'Temporary table' }),
+        h('div', { class: 'muted', style: { fontSize: '12px' }, text: browserMode
+          ? 'Kept only for this browser tab and removed when you close it — export to save a copy on your computer.'
+          : 'Available only when the app runs standalone in the browser (no server).' }),
+      ),
+    );
+
     root.append(
       meta,
-      h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px', margin: '12px 0' } },
+      h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px', margin: '12px 0 0' } },
         h('div', { class: 'field', style: { marginBottom: '6px' } }, h('label', { text: 'New table name' }), nameField),
         h('div', { class: 'field', style: { marginBottom: '6px' } }, h('label', { text: 'Description' }), descField),
       ),
+      tempField,
       list,
       h('h4', { style: { marginTop: '16px' }, text: 'Preview' }),
       preview,
@@ -154,7 +172,7 @@ export function openImport({ onCreated } = {}) {
           if (x.type === 'dropdown') options.multi = x.multi;
           return { index: x.index, name: x.name, type: x.type, subtype: x.subtype || undefined, options };
         });
-        const res = await api.importCreate({ jobId: j.jobId, name, description: descField.value.trim(), columns });
+        const res = await api.importCreate({ jobId: j.jobId, name, description: descField.value.trim(), columns, ephemeral: browserMode && tempBox.checked });
         toast(`Imported ${res.added} rows` + (res.skipped ? ` (${res.skipped} skipped)` : ''), 'ok');
         m.close();
         if (onCreated) onCreated(res.table);

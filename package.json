@@ -31,6 +31,10 @@
     "test:liveserver": "node scripts/probe-liveserver.mjs",
     "test:standalone": "node scripts/e2e-flows.mjs",
     "test:static": "node scripts/verify-static-host.mjs",
+    "test:static-default-port": "node scripts/verify-static-default-port.mjs",
+    "test:temporary": "node scripts/verify-temporary.mjs",
+    "test:github-pages": "node scripts/verify-github-pages.mjs",
+    "audit:case": "node scripts/audit-case.mjs",
     "test:ui": "node scripts/verify-ui.mjs",
     "test:flows": "node scripts/verify-flows.mjs",
     "test:features": "node scripts/verify-features.mjs"

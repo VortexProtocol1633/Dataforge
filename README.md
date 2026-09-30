@@ -65,6 +65,10 @@ Optional helpers:
 ```bash
 npm run test:standalone # headless-Chrome suite proving the app works with NO backend
 npm run test:static     # headless-Chrome check: static host + no df_api → browser mode
+npm run test:static-default-port # headless-Chrome check: login works on a default-port static host (GitHub Pages)
+npm run test:temporary  # headless-Chrome check: temporary tables survive a reload, then get swept
+npm run test:github-pages # serves public/ the way Pages does (subpath, case-sensitive, Pages MIME) and drives the UI
+npm run audit:case      # verifies every local reference matches the exact case on disk (Pages is case-sensitive)
 npm run test:ui         # headless-Chrome check: modal icons + confirm dialogs (delete)
 npm run test:flows      # headless-Chrome check: row form, extract + chart builder
 npm run seed-demo       # wipe + create demo tables (backend mode only)
@@ -93,6 +97,23 @@ cp node_modules/xlsx/dist/xlsx.full.min.js public/vendor/xlsx.full.min.js
 cp node_modules/pdfjs-dist/build/pdf.mjs       public/vendor/pdfjs/pdf.js
 cp node_modules/pdfjs-dist/build/pdf.worker.mjs public/vendor/pdfjs/pdf.worker.js
 ```
+
+### Hosting on GitHub Pages
+Pages serves this repo from the **branch root**, so a visitor landing on
+`https://<user>.github.io/Dataforge/` is bounced by the tiny root `index.html`
+to `public/index.html`, where the real app lives. Two things make that safe:
+- **`.nojekyll`** (at the repo root and in `public/`) stops Jekyll from
+  reprocessing the site.
+- Every asset path in `public/` is **relative**, so the app works from the
+  `/Dataforge/public/` subpath — and all references match their file's exact
+  case, which matters because Pages runs on a case-sensitive filesystem.
+
+Check it locally before pushing: `npm run test:github-pages` (serves the site
+the way Pages does) and `npm run audit:case`.
+
+> The root redirect hard-codes the deployed URL, so if the repository is
+> renamed move it along too. In **Settings → Pages**, keep the source as the
+> `main` branch, `/ (root)`.
 
 ---
 
@@ -186,6 +207,27 @@ booleans TRUE/FALSE, currency numeric). **Word (.docx) exports embed the
 uploaded photos** of Image columns right in the table cells; .xlsx/.csv carry
 the file name. In browser mode the file downloads directly; in backend mode it
 is also written to `Saves/Tables/` (chart images → `Saves/Charts/`).
+
+### 9. Temporary tables (browser-only, per tab)
+Uploading a file with **Temporary table** ticked (the default in browser mode)
+creates a table that is meant to be *edited and exported*, not kept:
+- it lives only in the tab that created it (IndexedDB) — nothing reaches a
+  server, and it is never mirrored into `Saves/`;
+- it **survives a reload** of that tab (the tab id is kept in `sessionStorage`);
+- each tab shows only the temporary tables *it* created — a sibling tab's live
+  temporary tables are hidden from your lists, never deleted;
+- closing the tab ends the workspace: a lightweight heartbeat tells the two
+  apart, so the leftovers of a closed tab are removed the next time the site is
+  opened (or within ~90 s if another tab is open). Opening a second tab never
+  wipes the first tab's work;
+- the workspace banner offers **Export .xlsx** and **Finish & remove**, which
+  downloads the data locally and deletes the temporary tables right away;
+- the **dashboard** shows a banner (“_N_ temporary tables in this tab”) with a
+  **Clear all now** button for a one-click purge.
+
+Normal tables are unaffected — only tables created with the temporary option
+are swept. The whole mechanism is client-side (`public/js/localstore.js`); the
+backend has no part in it, which is why it is only offered in browser mode.
 
 ---
 

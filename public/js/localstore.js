@@ -107,9 +107,14 @@ function openDB() {
       }
     };
     req.onsuccess = () => {
-      seedAdmin(req.result)
-        .then(() => seedDemo(req.result))
-        .then(() => resolve(req.result), reject);
+      const db = req.result;
+      // Drop temporary tables left behind by tabs that are gone, seed on a
+      // fresh database, then start this tab's liveness heartbeat.
+      sweepStaleSessions(db)
+        .catch(() => { /* a failed sweep must never block the app */ })
+        .then(() => seedAdmin(db))
+        .then(() => seedDemo(db))
+        .then(() => { startHeartbeat(db); resolve(db); }, reject);
     };
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error('IndexedDB open blocked'));
@@ -124,6 +129,74 @@ const dbGet = (db, store, key) => new Promise((res, rej) => { const r = db.trans
 const dbGetAll = (db, store) => new Promise((res, rej) => { const r = db.transaction(store).objectStore(store).getAll(); r.onsuccess = reqTo(res, rej); r.onerror = rej; });
 const dbPut = (db, store, val) => new Promise((res, rej) => { const r = db.transaction(store, 'readwrite').objectStore(store).put(val); r.onsuccess = reqTo(res, rej); r.onerror = rej; });
 const dbDel = (db, store, key) => new Promise((res, rej) => { const r = db.transaction(store, 'readwrite').objectStore(store).delete(key); r.onsuccess = reqTo(res, rej); r.onerror = rej; });
+
+/* ------------------------------------------------------------------ */
+/* Temporary (per-tab) sessions                                       */
+/* ------------------------------------------------------------------ */
+/* Tables imported with the "temporary" option are tagged with the id of the
+ * tab that created them. That id lives in sessionStorage, so it survives a
+ * reload but dies with the tab. A small heartbeat lets a live tab be told
+ * apart from the leftovers of a closed one, so opening a second tab never
+ * wipes the first tab's work; anything a closed tab leaves behind is removed
+ * the next time the site is opened (or right away if another tab is open). */
+
+const SESSION_STORE = 'meta';
+const TAB_SESSION_KEY = 'df_tab_session';
+const SESSION_LIVE_MS = 90 * 1000;   // a tab counts as "alive" if it beat within this window
+const SESSION_BEAT_MS = 15 * 1000;
+
+let cachedSessionId = null;
+function tabSessionId() {
+  if (cachedSessionId) return cachedSessionId;
+  try {
+    let id = sessionStorage.getItem(TAB_SESSION_KEY);
+    if (!id) { id = 'sess_' + uid(12); sessionStorage.setItem(TAB_SESSION_KEY, id); }
+    cachedSessionId = id;
+  } catch {
+    cachedSessionId = 'sess_' + uid(12); // no sessionStorage (private mode) → tab lifetime
+  }
+  return cachedSessionId;
+}
+
+const sessionMetaKey = (id) => 'sess:' + id;
+
+/** Delete tables and everything hanging off them (files, charts, share links). */
+async function deleteTablesCascade(db, ids) {
+  const idSet = new Set(ids);
+  if (!idSet.size) return 0;
+  for (const id of idSet) await dbDel(db, 'tables', id);
+  for (const f of await dbGetAll(db, 'files')) if (f.tableId && idSet.has(f.tableId)) await dbDel(db, 'files', f.url);
+  for (const c of await dbGetAll(db, 'charts')) if (c.config && idSet.has(c.config.tableId)) await dbDel(db, 'charts', c.id);
+  for (const s of await dbGetAll(db, 'shares')) if (s.tableId && idSet.has(s.tableId)) await dbDel(db, 'shares', s.token);
+  return idSet.size;
+}
+
+/** Remove temporary tables whose owning tab is gone; our own tab always survives. */
+async function sweepStaleSessions(db) {
+  const sid = tabSessionId();
+  const now = Date.now();
+  const beats = new Map(
+    (await dbGetAll(db, SESSION_STORE))
+      .filter((r) => r && typeof r.k === 'string' && r.k.startsWith('sess:'))
+      .map((r) => [r.k.slice(5), Number(r.v) || 0])
+  );
+  const alive = (id) => id === sid || (beats.has(id) && now - beats.get(id) < SESSION_LIVE_MS);
+  const dead = (await dbGetAll(db, 'tables')).filter((t) => t.ephemeral && !alive(t.sessionId));
+  await deleteTablesCascade(db, dead.map((t) => t.id));
+  for (const [id, at] of beats) {
+    if (id !== sid && now - at >= SESSION_LIVE_MS) await dbDel(db, SESSION_STORE, sessionMetaKey(id));
+  }
+}
+
+let heartbeatStarted = false;
+function startHeartbeat(db) {
+  const beat = () => dbPut(db, SESSION_STORE, { k: sessionMetaKey(tabSessionId()), v: Date.now() }).catch(() => {});
+  beat();
+  if (heartbeatStarted) return;
+  heartbeatStarted = true;
+  setInterval(beat, SESSION_BEAT_MS);
+  try { document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); }); } catch { /* ignore */ }
+}
 
 async function seedAdmin(db) {
   const existing = await dbGet(db, 'users', 'admin').catch(() => null);
@@ -298,7 +371,7 @@ function summarize(t) {
     id: t.id, name: t.name, description: t.description || '',
     createdAt: t.createdAt, updatedAt: t.updatedAt, archived: !!t.archived,
     kind: t.kind || 'table', color: t.color || null, icon: t.icon || null, columnCount: (t.columns || []).length,
-    rowCount: (t.rows || []).length,
+    rowCount: (t.rows || []).length, ephemeral: !!t.ephemeral,
     columns: (t.columns || []).map((c) => ({ id: c.id, name: c.name, type: c.type, subtype: c.subtype })),
   };
 }
@@ -314,14 +387,17 @@ const localApi = {
   /* ---------- tables ---------- */
   async list({ includeArchived = false, search = '', kind } = {}) {
     const db = await openDB();
-    let owned = (await dbGetAll(db, 'tables')).filter((t) => t.ownerId === OWNER);
+    const sid = tabSessionId();
+    // Temporary tables belong to the tab that created them: another open tab's
+    // temp tables are left alone but kept out of this tab's lists.
+    let owned = (await dbGetAll(db, 'tables')).filter((t) => t.ownerId === OWNER && (!t.ephemeral || t.sessionId === sid));
     const q = String(search || '').toLowerCase();
     owned = owned.filter((t) => !q || (t.name || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
     if (kind) owned = owned.filter((t) => (t.kind || 'table') === kind);
     if (!includeArchived) owned = owned.filter((t) => !t.archived);
     owned.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     return owned.map(summarize);
-  },  async create({ name, description = '', columns = [], rows = [], color, icon } = {}) {
+  },  async create({ name, description = '', columns = [], rows = [], color, icon, ephemeral = false } = {}) {
     if (!name || !String(name).trim()) throw httpErr(400, 'Table name is required');
     const db = await openDB();
     const table = {
@@ -339,6 +415,10 @@ const localApi = {
       rows: [],
       summaries: [],
     };
+    if (ephemeral) {
+      table.ephemeral = true;
+      table.sessionId = tabSessionId();
+    }
     for (const cdef of columns) {
       const col = buildColumn(cdef);
       if (table.columns.some((c) => c.name.toLowerCase() === col.name.toLowerCase())) {
@@ -443,13 +523,17 @@ const localApi = {
     const db = await openDB();
     const t = await dbGet(db, 'tables', id);
     if (!t || t.ownerId !== OWNER) throw httpErr(403, 'Forbidden');
-    await dbDel(db, 'tables', id);
-    // drop the table's stored files and any chart configs pointing at it
-    const files = await dbGetAll(db, 'files');
-    for (const f of files.filter((x) => x.tableId === id)) await dbDel(db, 'files', f.url);
-    const charts = await dbGetAll(db, 'charts');
-    for (const c of charts.filter((x) => x.config && x.config.tableId === id)) await dbDel(db, 'charts', c.id);
+    await deleteTablesCascade(db, [id]);
     return { ok: true };
+  },
+
+  /** Delete every temporary table this tab created (used by "Finish & remove"). */
+  async clearEphemeral() {
+    const db = await openDB();
+    const sid = tabSessionId();
+    const mine = (await dbGetAll(db, 'tables')).filter((t) => t.ephemeral && t.sessionId === sid);
+    await deleteTablesCascade(db, mine.map((t) => t.id));
+    return { removed: mine.length };
   },
 
   /* ---------- columns ---------- */
@@ -663,8 +747,10 @@ const localApi = {
     const size = Math.floor(BufferBytes(data));
     if (size > 20 * 1024 * 1024) throw httpErr(413, 'File exceeds the 20 MB limit');
     const url = `data:${mime};base64,${data}`;
-    await dbPut(db, 'files', { url, tableId, name: String(filename || 'file'), size, mime });
-    return { url, name: String(filename || 'file'), size, mime };
+    const rec = { url, tableId, name: String(filename || 'file'), size, mime };
+    if (t.ephemeral) { rec.ephemeral = true; rec.sessionId = t.sessionId; }
+    await dbPut(db, 'files', rec);
+    return { url, name: rec.name, size, mime };
   },
 
   /* ---------- row shares ---------- */
@@ -1196,7 +1282,7 @@ function parseDateString(s) {
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
-async function importCreate({ jobId, name, description = '', columns }) {
+async function importCreate({ jobId, name, description = '', columns, ephemeral = false }) {
   const job = importJobs.get(jobId);
   if (!job) throw httpErr(400, 'Import session expired — please upload the file again');
   if (!Array.isArray(columns) || !columns.length) throw httpErr(400, 'jobId and column mapping are required');
@@ -1230,7 +1316,7 @@ async function importCreate({ jobId, name, description = '', columns }) {
   if (!defs.length) throw httpErr(400, 'Select at least one column to import');
 
   // 2. create the table shell, then map source column index -> stored column id
-  const t = await localApi.create({ name, description, columns: defs.map((x) => x.def) });
+  const t = await localApi.create({ name, description, columns: defs.map((x) => x.def), ephemeral });
   const colIdByIndex = new Map();
   defs.forEach((x, k) => colIdByIndex.set(x.index, t.columns[k].id));
 

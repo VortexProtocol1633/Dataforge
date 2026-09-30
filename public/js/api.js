@@ -77,6 +77,12 @@ export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+/**
+ * True when the browser (IndexedDB) data layer is serving this page. Temporary
+ * tables only exist here — there is no server to keep or delete them.
+ */
+export function isBrowserMode() { return mode === 'local'; }
+
 export async function request(method, path, body) {
   const headers = {};
   const token = getToken();
@@ -109,6 +115,9 @@ export async function request(method, path, body) {
 /* ------------------------------------------------------------------ */
 
 let mode = detectInitialMode(); // 'remote' | 'local'
+// True once the backend has answered at least one call — after that we do not
+// reinterpret an endpoint-level 404 as "there is no backend here".
+let remoteConfirmed = false;
 
 /**
  * Decide which data layer serves the app before the first API call.
@@ -137,30 +146,53 @@ function detectInitialMode() {
 }
 
 /**
- * Run an operation. In local mode the call is handled entirely in the
- * browser; in remote mode the backend is tried first and, on a network
- * failure (status 0), the session transparently switches to the local layer.
- * Errors from the local layer are normalised to ApiError so the views handle
- * both modes identically.
+ * Statuses that mean "no DataForge backend is serving this origin": a network
+ * failure (0) or the endpoint simply not existing on the host (a plain static
+ * server answers 404/405; a proxy in front of nothing answers 502/503/504).
+ */
+const BACKEND_MISSING_STATUSES = new Set([0, 404, 405, 501, 502, 503, 504]);
+
+/** Normalise anything thrown by the local layer into an ApiError. */
+function asApiError(e) {
+  if (e instanceof ApiError) return e;
+  const status = typeof e.status === 'number' && e.status !== 0 ? e.status : 500;
+  return new ApiError(status, e.message || String(e));
+}
+
+async function runLocal(local) {
+  try { return await local(); } catch (le) { throw asApiError(le); }
+}
+
+function switchToLocal() {
+  mode = 'local';
+  try { window.DF_API_MODE = 'local'; } catch { /* ignore */ }
+}
+
+/**
+ * Run an operation. In local mode the call is handled entirely in the browser;
+ * in remote mode the backend is tried first and the session transparently
+ * switches to the local layer when there is no backend on this origin — so a
+ * static host (GitHub Pages, `npx serve`, Live Server on port 80, …) still lets
+ * every user sign in and work. Errors from the local layer are normalised to
+ * ApiError so the views handle both modes identically.
  */
 async function run(remote, local) {
-  if (mode === 'local') {
-    try { return await local(); }
-    catch (le) {
-      throw le instanceof ApiError ? le : new ApiError(typeof le.status === 'number' && le.status !== 0 ? le.status : 500, le.message || String(le));
-    }
-  }
+  if (mode === 'local') return runLocal(local);
   try {
     const v = await remote();
     mode = 'remote';
+    remoteConfirmed = true;
     return v;
   } catch (e) {
-    if (e instanceof ApiError && e.status === 0) {
-      mode = 'local';
-      try { window.DF_API_MODE = 'local'; } catch { /* ignore */ }
-      try { return await local(); } catch (le) {
-        throw le instanceof ApiError ? le : new ApiError(typeof le.status === 'number' && le.status !== 0 ? le.status : 500, le.message || String(le));
-      }
+    // A network failure always falls back (the backend may have stopped); a
+    // "missing endpoint" status only does so before the backend has ever
+    // answered, so a stray 404 from a live backend cannot split the data layer.
+    const missing = e instanceof ApiError && (
+      e.status === 0 || (!remoteConfirmed && BACKEND_MISSING_STATUSES.has(e.status))
+    );
+    if (missing) {
+      switchToLocal();
+      return runLocal(local);
     }
     throw e;
   }
@@ -216,6 +248,8 @@ export const api = {
   extract: (body) => run(() => request('POST', '/api/tables/extract', body), () => localApi.extract(body).then((table) => ({ table }))),
   detach: (id) => run(() => request('POST', `/api/tables/${id}/detach`), () => localApi.detach(id).then((table) => ({ table }))),
   putSummaries: (id, summaries) => run(() => request('PUT', `/api/tables/${id}/summaries`, { summaries }), () => localApi.putSummaries(id, summaries)),
+  /** Delete this tab's temporary tables right now (browser layer only). */
+  clearEphemeral: () => run(() => Promise.resolve({ removed: 0 }), () => localApi.clearEphemeral()),
 
   // columns
   addColumn: (id, body) => run(() => request('POST', `/api/tables/${id}/columns`, body), () => localApi.addColumn(id, body).then((column) => ({ column }))),

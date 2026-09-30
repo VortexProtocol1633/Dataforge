@@ -12,8 +12,10 @@ import http from 'http';
 
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PUBLIC = path.resolve('public');
-const UI = 'http://127.0.0.1:5500/';
 const API = 'http://localhost:3210';
+// Dev servers must opt in to the backend explicitly (see README) — without
+// ?df_api= the page correctly runs in standalone browser mode on any port.
+const UI = `http://127.0.0.1:5500/?df_api=${encodeURIComponent(API)}`;
 const DEBUG_PORT = 9335;
 
 const healthOk = await fetch(`${API}/api/health`).then((r) => r.ok).catch(() => false);
@@ -21,7 +23,7 @@ if (!healthOk) { console.error('Backend not reachable on ' + API + ' — start i
 await import('./seed-demo.mjs');
 
 // --- tiny static file server acting as the "Live Server" ---
-const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2' };
+const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2' };
 const staticSrv = http.createServer((req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]);
   if (p === '/') p = '/index.html';
